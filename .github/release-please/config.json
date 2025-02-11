@@ -1,19 +1,14 @@
 {
   "release-type": "rust",
+  "commit-search-depth": 100,
   "bump-minor-pre-major": true,
   "packages": {
     "skim": {
       "changelog-path": "/CHANGELOG.md",
       "include-component-in-tag": false
-    },
-    "e2e": {
-      "skip-github-release": true,
-      "exclude-paths": ["*"]
-    },
-    "xtask": {
-      "skip-github-release": true,
-      "exclude-paths": ["*"]
     }
   },
-  "plugins": ["cargo-workspace"]
+  "plugins": [
+    "cargo-workspace"
+  ]
 }
