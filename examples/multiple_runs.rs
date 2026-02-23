@@ -1,4 +1,3 @@
-use nix::libc::malloc_trim;
 use skim::{Skim, prelude::SkimOptionsBuilder};
 
 // Hint: use `ps -T -p $(pgrep -f target/debug/examples/multiple_runs)` to watch threads while the
@@ -11,8 +10,9 @@ fn main() {
             .build()
             .unwrap();
         let res = Skim::run_with(opts, None).unwrap();
+        #[cfg(target_os = "linux")]
         unsafe {
-            malloc_trim(0);
+            nix::libc::malloc_trim(0);
         }
         println!(
             "run {i}: {:?}, sleeping for 5 secs",

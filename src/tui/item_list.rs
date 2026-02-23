@@ -706,7 +706,7 @@ impl SkimWidget for ItemList {
                     };
 
                     let mut display_line = item.item.display(DisplayContext {
-                        score: item.rank[0],
+                        score: item.rank.score,
                         matches,
                         container_width,
                         base_style: if is_current { theme.current } else { theme.normal },

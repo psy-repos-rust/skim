@@ -25,14 +25,13 @@ impl OrEngine {
 
 impl MatchEngine for OrEngine {
     fn match_item(&self, item: &dyn SkimItem) -> Option<MatchResult> {
-        for engine in &self.engines {
-            let result = engine.match_item(item);
-            if result.is_some() {
-                return result;
-            }
-        }
+        let result = self
+            .engines
+            .iter()
+            .map(|e| e.match_item(item))
+            .max_by_key(|res| res.as_ref().map(|matched| matched.rank.score));
 
-        None
+        result?
     }
 }
 
@@ -71,8 +70,8 @@ impl AndEngine {
     }
 
     fn merge_matched_items(&self, items: Vec<MatchResult>, text: &str) -> MatchResult {
-        let rank = items[0].rank;
         let mut ranges = vec![];
+        let mut rank = items[0].rank;
         for item in items {
             match item.matched_range {
                 MatchRange::ByteRange(..) => {
@@ -82,6 +81,9 @@ impl AndEngine {
                     ranges.extend(vec.iter());
                 }
             }
+            rank.score = rank.score.max(item.rank.score);
+            rank.begin = rank.begin.min(item.rank.begin);
+            rank.end = rank.end.max(item.rank.end);
         }
 
         ranges.sort();

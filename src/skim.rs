@@ -160,7 +160,7 @@ where
             rc.kill()
         }
         // Clear items
-        // self.app.item_pool.clear();
+        self.app.item_pool.clear();
         // Clear displayed items unless no_clear_if_empty is set
         if !self.app.options.no_clear_if_empty {
             self.app.item_list.clear();
@@ -391,7 +391,7 @@ where
         let current = self.app.item_list.selected();
         let header = self.app.header.header.clone();
         let final_event = self.final_event.clone();
-        let final_key = self.final_key.clone();
+        let final_key = self.final_key;
 
         drop(self);
 
