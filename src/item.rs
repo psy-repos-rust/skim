@@ -16,6 +16,7 @@ use clap::builder::PossibleValue;
 
 use crate::spinlock::{SpinLock, SpinLockGuard};
 use crate::{MatchRange, Rank, SkimItem};
+use tokio::sync::Notify;
 
 //------------------------------------------------------------------------------
 
@@ -143,19 +144,90 @@ impl MatchedItem {
             return existing;
         }
 
+        // Fast path: if all existing <= all incoming, we can append without merging.
+        if existing.last().unwrap() <= incoming.first().unwrap() {
+            let mut out = existing;
+            out.extend(incoming);
+            return out;
+        }
+
+        // Fast path: if all incoming <= all existing, prepend without complex merge.
+        if incoming.last().unwrap() <= existing.first().unwrap() {
+            let mut out = incoming;
+            out.extend(existing);
+            return out;
+        }
+
+        // Merge using direct next values to avoid Peekable overhead.
         let mut merged = Vec::with_capacity(existing.len() + incoming.len());
-        let mut a = existing.into_iter().peekable();
-        let mut b = incoming.into_iter().peekable();
-        while a.peek().is_some() && b.peek().is_some() {
-            if a.peek().unwrap() <= b.peek().unwrap() {
-                merged.push(a.next().unwrap());
-            } else {
-                merged.push(b.next().unwrap());
+        let mut a = existing.into_iter();
+        let mut b = incoming.into_iter();
+        let mut a_next = a.next();
+        let mut b_next = b.next();
+
+        loop {
+            match (&a_next, &b_next) {
+                (Some(av), Some(bv)) => {
+                    if av <= bv {
+                        // take a_next
+                        merged.push(a_next.take().unwrap());
+                        a_next = a.next();
+                    } else {
+                        merged.push(b_next.take().unwrap());
+                        b_next = b.next();
+                    }
+                }
+                (Some(_), None) => {
+                    merged.push(a_next.take().unwrap());
+                    merged.extend(a);
+                    break;
+                }
+                (None, Some(_)) => {
+                    merged.push(b_next.take().unwrap());
+                    merged.extend(b);
+                    break;
+                }
+                (None, None) => break,
             }
         }
-        merged.extend(a);
-        merged.extend(b);
+
         merged
+    }
+
+    /// Merge `incoming` into an already-sorted `existing` vector in-place.
+    ///
+    /// This function chooses between two strategies:
+    /// - If `incoming` is small (few items), insert them one-by-one using binary
+    ///   search to find the insertion point. This is O(m log n) for m incoming
+    ///   items and is faster when m << n.
+    /// - Otherwise, fall back to the linear two-way merge which is O(n+m).
+    ///
+    /// `existing` must be sorted according to the same ordering used by
+    /// `MatchedItem::cmp`.
+    pub fn merge_into_sorted(existing: &mut Vec<MatchedItem>, incoming: Vec<MatchedItem>) {
+        if incoming.is_empty() {
+            return;
+        }
+
+        // Heuristic threshold: for small incoming batches, prefer binary-insert.
+        // This avoids allocating a new vector and copying the entire existing
+        // list when we only need to insert a few new items.
+        const SMALL_INSERT_THRESHOLD: usize = 256;
+
+        if incoming.len() <= SMALL_INSERT_THRESHOLD {
+            // Insert each incoming item into the existing sorted vector.
+            // For small m this is typically faster than allocating a new
+            // buffer and performing a full linear merge.
+            for item in incoming {
+                let pos = existing.binary_search_by(|e| e.cmp(&item)).unwrap_or_else(|p| p);
+                existing.insert(pos, item);
+            }
+        } else {
+            // For larger incoming batches, perform the linear two-way merge
+            // which is O(n+m) and avoids the O(n*m) cost of repeated inserts.
+            let old = std::mem::take(existing);
+            *existing = MatchedItem::sorted_merge(old, incoming);
+        }
     }
 }
 
@@ -200,6 +272,13 @@ pub struct ItemPool {
     lines_to_reserve: usize,
     /// Reverse the order of items (--tac flag)
     tac: bool,
+
+    /// Notified whenever new items are appended to the pool (async path).
+    ///
+    /// Listeners (e.g. the TUI event loop) can `await` this to wake up
+    /// immediately when items arrive instead of waiting for the next
+    /// periodic tick.
+    pub items_available: Arc<Notify>,
 }
 
 impl Default for ItemPool {
@@ -211,6 +290,7 @@ impl Default for ItemPool {
             reserved_items: SpinLock::new(Vec::new()),
             lines_to_reserve: 0,
             tac: false,
+            items_available: Arc::new(Notify::new()),
         }
     }
 }
@@ -230,6 +310,7 @@ impl ItemPool {
             reserved_items: SpinLock::new(Vec::new()),
             lines_to_reserve: options.header_lines,
             tac: options.tac,
+            items_available: Arc::new(Notify::new()),
         }
     }
 
@@ -305,7 +386,15 @@ impl ItemPool {
         }
         self.length.store(pool.len(), Ordering::SeqCst);
         trace!("item pool, done append {len} items, total: {}", pool.len());
-        pool.len()
+        let new_len = pool.len();
+        drop(pool);
+        drop(header_items);
+        // Wake any listener that is waiting for new items (e.g. the event loop
+        // or the filter-mode loop) so it can restart the matcher immediately
+        // instead of waiting for the next periodic tick.
+        self.items_available.notify_one();
+
+        new_len
     }
 
     /// Takes items from the pool, copying new items since last take and releasing lock immediately

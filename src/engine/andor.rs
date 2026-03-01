@@ -1,5 +1,6 @@
 use std::fmt::{Display, Error, Formatter};
 
+use crate::fuzzy_matcher::MatchIndices;
 use crate::{MatchEngine, MatchRange, MatchResult, SkimItem};
 
 //------------------------------------------------------------------------------
@@ -70,7 +71,7 @@ impl AndEngine {
     }
 
     fn merge_matched_items(&self, items: Vec<MatchResult>, text: &str) -> MatchResult {
-        let mut ranges = vec![];
+        let mut ranges = MatchIndices::new();
         let mut rank = items[0].rank;
         for item in items {
             match item.matched_range {
@@ -78,7 +79,7 @@ impl AndEngine {
                     ranges.extend(item.range_char_indices(text));
                 }
                 MatchRange::Chars(vec) => {
-                    ranges.extend(vec.iter());
+                    ranges.extend(vec.iter().copied());
                 }
             }
             rank.score = rank.score.max(item.rank.score);

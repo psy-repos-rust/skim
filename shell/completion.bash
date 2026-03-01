@@ -62,7 +62,7 @@ _sk() {
                     return 0
                     ;;
                 --algo)
-                    COMPREPLY=($(compgen -W "skim_v1 skim_v2 clangd fzy frizbee" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "skim_v1 skim_v2 clangd fzy frizbee arinae" -- "${cur}"))
                     return 0
                     ;;
                 --case)
@@ -250,7 +250,7 @@ _sk() {
                     return 0
                     ;;
                 --flags)
-                    COMPREPLY=($(compgen -W "no-preview-pty" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "no-preview-pty show-score" -- "${cur}"))
                     return 0
                     ;;
                 --hscroll-off)

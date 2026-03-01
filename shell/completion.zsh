@@ -27,7 +27,8 @@ _sk() {
 skim_v2\:"Improved skim fuzzy matching algorithm (v2, default)"
 clangd\:"Clangd fuzzy matching algorithm"
 fzy\:"Fzy matching algorithm (https\://github.com/jhawthorn/fzy)"
-frizbee\:"Frizbee matching algorithm, typo resistant Will fallback to SkimV2 if the feature is not enabled"))' \
+frizbee\:"Frizbee matching algorithm, typo resistant"
+arinae\:"Arinae\: typo-resistant & natural algorithm"))' \
 '--case=[Case sensitivity]:CASE:((respect\:"Case-sensitive matching"
 ignore\:"Case-insensitive matching"
 smart\:"Smart case\: case-insensitive unless query contains uppercase"))' \
@@ -83,7 +84,8 @@ zsh\:"Zsh"))' \
 '--remote=[Send commands to an IPC socket with optional name (defaults to sk)]::REMOTE:_default' \
 '--tmux=[Run in a tmux popup]::TMUX:_default' \
 '--log-file=[Pipe log output to a file]:LOG_FILE:_default' \
-'*--flags=[Feature flags]:FLAGS:((no-preview-pty\:"Disable preview PTY on linux"))' \
+'*--flags=[Feature flags]:FLAGS:((no-preview-pty\:"Disable preview PTY on linux"
+show-score\:"Display the item'\''s match score before its value in the item list (for matcher debugging)"))' \
 '--hscroll-off=[]:HSCROLL_OFF:_default' \
 '--jump-labels=[]:JUMP_LABELS:_default' \
 '--scheme=[]:SCHEME:_default' \

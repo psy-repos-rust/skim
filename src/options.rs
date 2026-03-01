@@ -1147,6 +1147,12 @@ impl SkimOptions {
             self.typos = Typos::Disabled;
         }
 
+        if let Some(ref filter_query) = self.filter
+            && self.query.is_none()
+        {
+            self.query = Some(filter_query.clone());
+        }
+
         self
     }
     /// Initializes history from configured history files
@@ -1229,6 +1235,8 @@ impl SkimOptions {
 pub enum FeatureFlag {
     /// Disable preview PTY on linux
     NoPreviewPty,
+    /// Display the item's match score before its value in the item list (for matcher debugging)
+    ShowScore,
 }
 
 #[allow(unused_macros)]

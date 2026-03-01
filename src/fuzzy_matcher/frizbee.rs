@@ -3,7 +3,7 @@ use frizbee::{Scoring, smith_waterman::SmithWatermanMatcher};
 
 use crate::{
     CaseMatching,
-    fuzzy_matcher::{FuzzyMatcher, IndexType, ScoreType},
+    fuzzy_matcher::{FuzzyMatcher, MatchIndices, ScoreType},
 };
 
 const RESPECT_CASE_BONUS: u16 = 10000;
@@ -31,7 +31,7 @@ impl FrizbeeMatcher {
 }
 
 impl FuzzyMatcher for FrizbeeMatcher {
-    fn fuzzy_indices(&self, choice: &str, pattern: &str) -> Option<(ScoreType, Vec<IndexType>)> {
+    fn fuzzy_indices(&self, choice: &str, pattern: &str) -> Option<(ScoreType, MatchIndices)> {
         let scoring = Scoring {
             matching_case_bonus: match self.case {
                 CaseMatching::Respect => RESPECT_CASE_BONUS,
@@ -49,7 +49,7 @@ impl FuzzyMatcher for FrizbeeMatcher {
         let mut matcher = SmithWatermanMatcher::new(pattern.as_bytes(), &scoring);
         matcher
             .match_haystack_indices(choice.as_bytes(), 0, self.max_typos)
-            .and_then(|(m, indices)| {
+            .and_then(|(m, mut indices)| {
                 debug!("{choice}: {m} ({})", scoring.matching_case_bonus);
                 if m > scoring.matching_case_bonus.saturating_mul(
                     pattern
@@ -59,10 +59,31 @@ impl FuzzyMatcher for FrizbeeMatcher {
                         .try_into()
                         .unwrap(),
                 ) {
-                    Some((m.into(), indices))
+                    indices.reverse();
+                    Some((m.into(), MatchIndices::from(indices)))
                 } else {
                     None
                 }
             })
+    }
+    fn fuzzy_match(&self, choice: &str, pattern: &str) -> Option<i64> {
+        let scoring = Scoring {
+            matching_case_bonus: match self.case {
+                CaseMatching::Respect => RESPECT_CASE_BONUS,
+                CaseMatching::Ignore => 0,
+                CaseMatching::Smart => {
+                    if pattern.chars().any(|c| c.is_uppercase()) {
+                        RESPECT_CASE_BONUS
+                    } else {
+                        0
+                    }
+                }
+            },
+            ..Default::default()
+        };
+        let mut matcher = SmithWatermanMatcher::new(pattern.as_bytes(), &scoring);
+        matcher
+            .match_haystack(choice.as_bytes(), self.max_typos)
+            .map(|x| x as ScoreType)
     }
 }
