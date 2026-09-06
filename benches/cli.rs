@@ -1462,8 +1462,8 @@ fn cmd_plot(args: &PlotArgs) -> std::result::Result<(), Box<dyn std::error::Erro
         let y_hi = mx * 2.0;
         let axes = fg.axes2d();
         axes.set_title("Total Time", lbl)
-            .set_x_label("Items", lbl)
-            .set_y_label("Time (s)", lbl)
+            .set_x_label("Items, log", lbl)
+            .set_y_label("Time (s, log)", lbl)
             .set_border(true, &[Bottom, Left, Top, Right], &[Color(gnuplot::RGBString(SURFACE))])
             .set_x_log(Some(10.0))
             .set_y_log(Some(10.0))
@@ -1487,7 +1487,7 @@ fn cmd_plot(args: &PlotArgs) -> std::result::Result<(), Box<dyn std::error::Erro
         let y_hi = (mx * 1.25).max(100.0);
         let axes = fg.axes2d();
         axes.set_title("Peak CPU", lbl)
-            .set_x_label("Items", lbl)
+            .set_x_label("Items, log", lbl)
             .set_y_label("CPU (%)", lbl)
             .set_border(true, &[Bottom, Left, Top, Right], &[Color(gnuplot::RGBString(SURFACE))])
             .set_x_log(Some(10.0))
@@ -1506,16 +1506,18 @@ fn cmd_plot(args: &PlotArgs) -> std::result::Result<(), Box<dyn std::error::Erro
 
     // ── Panel 2: Peak Memory — log x, linear y ───────────────────────────────
     {
-        let (_, mx) = y_extent(&mem_bands);
+        let (mn, mx) = y_extent(&mem_bands);
+        let y_lo = (mn * 0.5).max(1e-9);
         let y_hi = (mx * 1.25).max(1.0);
         let axes = fg.axes2d();
         axes.set_title("Peak Memory", lbl)
-            .set_x_label("Items", lbl)
-            .set_y_label("Memory (MB)", lbl)
+            .set_x_label("Items, log", lbl)
+            .set_y_label("Memory (MB, log)", lbl)
             .set_border(true, &[Bottom, Left, Top, Right], &[Color(gnuplot::RGBString(SURFACE))])
             .set_x_log(Some(10.0))
+            .set_y_log(Some(10.0))
             .set_x_range(Fix(x_lo), Fix(x_hi))
-            .set_y_range(Fix(0.0), Fix(y_hi))
+            .set_y_range(Fix(y_lo), Fix(y_hi))
             .set_x_grid(true)
             .set_y_grid(true)
             .set_legend(
@@ -1533,7 +1535,7 @@ fn cmd_plot(args: &PlotArgs) -> std::result::Result<(), Box<dyn std::error::Erro
         let y_hi = (mx * 1.25).max(0.01);
         let axes = fg.axes2d();
         axes.set_title("Startup Time", lbl)
-            .set_x_label("Items", lbl)
+            .set_x_label("Items, log", lbl)
             .set_y_label("Time (s)", lbl)
             .set_border(true, &[Bottom, Left, Top, Right], &[Color(gnuplot::RGBString(SURFACE))])
             .set_x_log(Some(10.0))
