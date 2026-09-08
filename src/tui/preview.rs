@@ -16,6 +16,7 @@ use tui_term::widget::PseudoTerminal;
 use std::env;
 use std::io::Read;
 use std::process::{Child, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -35,18 +36,47 @@ const VT_SCROLLBACK: usize = 100_000;
 type PlainChild = Arc<Mutex<Option<Child>>>;
 
 fn read_bounded(mut reader: impl Read) -> Vec<u8> {
+    read_bounded_with_updates(&mut reader, |_| {})
+}
+
+fn read_bounded_with_updates(mut reader: impl Read, mut update: impl FnMut(&[u8])) -> Vec<u8> {
+    const UPDATE_INTERVAL: Duration = Duration::from_millis(16);
+
     let mut output = Vec::with_capacity(PREVIEW_MAX_BYTES);
     let mut buffer = [0; 8192];
+    let mut last_update = None;
+    let mut published_len = 0;
     loop {
         match reader.read(&mut buffer) {
             Ok(0) | Err(_) => break,
             Ok(read) => {
                 let retained = PREVIEW_MAX_BYTES.saturating_sub(output.len()).min(read);
                 output.extend_from_slice(&buffer[..retained]);
+
+                let update_due = last_update.is_none_or(|last: Instant| last.elapsed() >= UPDATE_INTERVAL);
+                if retained > 0 && (update_due || output.len() == PREVIEW_MAX_BYTES) {
+                    update(&output);
+                    published_len = output.len();
+                    last_update = Some(Instant::now());
+                }
             }
         }
     }
+    if output.len() != published_len {
+        update(&output);
+    }
     output
+}
+
+fn update_plain_content(content: &RwLock<PreviewContent>, cancelled: &AtomicBool, output: &[u8]) {
+    let Ok(text) = output.to_vec().into_text() else {
+        return;
+    };
+    if let Ok(mut content) = content.write()
+        && !cancelled.load(Ordering::Acquire)
+    {
+        *content = PreviewContent::Text(text);
+    }
 }
 
 fn terminate_plain_child(child: &PlainChild) {
@@ -132,6 +162,7 @@ pub struct Preview {
     /// Channel to signal thread interruption
     interrupt_tx: Option<mpsc::Sender<()>>,
     plain_child: Option<PlainChild>,
+    plain_cancelled: Option<Arc<AtomicBool>>,
     pub theme: Arc<ColorTheme>,
     /// Border type
     pub border: BorderType,
@@ -338,6 +369,10 @@ impl Preview {
     }
     /// Kill the preview child process and interrupt the reader thread.
     pub fn kill(&mut self) {
+        if let Some(cancelled) = self.plain_cancelled.take() {
+            cancelled.store(true, Ordering::Release);
+        }
+
         if let Some(tx) = self.interrupt_tx.take() {
             let _ = tx.send(());
         }
@@ -555,6 +590,8 @@ impl Preview {
 
             let (interrupt_tx, interrupt_rx) = mpsc::channel();
             self.interrupt_tx = Some(interrupt_tx);
+            let cancelled = Arc::new(AtomicBool::new(false));
+            self.plain_cancelled = Some(cancelled.clone());
 
             let mut child = match shell_cmd.spawn() {
                 Ok(child) => child,
@@ -570,7 +607,13 @@ impl Preview {
             self.plain_child = Some(child.clone());
 
             self.thread_handle = Some(std::thread::spawn(move || {
-                let stdout_reader = std::thread::spawn(move || read_bounded(stdout));
+                let streaming_content = content.clone();
+                let streaming_cancelled = cancelled.clone();
+                let stdout_reader = std::thread::spawn(move || {
+                    read_bounded_with_updates(stdout, |output| {
+                        update_plain_content(&streaming_content, &streaming_cancelled, output);
+                    })
+                });
                 let stderr_reader = std::thread::spawn(move || read_bounded(stderr));
 
                 let status = loop {
@@ -612,13 +655,17 @@ impl Preview {
                 let Some(status) = status else {
                     return;
                 };
-                if let Ok(mut c) = content.write() {
+                if let Ok(mut c) = content.write()
+                    && !cancelled.load(Ordering::Acquire)
+                {
                     let output = if status.success() { stdout } else { stderr };
                     *c = PreviewContent::Text(output.into_text().unwrap_or_default());
                 }
 
-                trace!("sending ready ping");
-                let _ = event_tx_clone.blocking_send(Event::PreviewReady);
+                if !cancelled.load(Ordering::Acquire) {
+                    trace!("sending ready ping");
+                    let _ = event_tx_clone.blocking_send(Event::PreviewReady);
+                }
             }));
         }
         Ok(())
@@ -767,6 +814,7 @@ impl SkimWidget for Preview {
             thread_handle: None,
             interrupt_tx: None,
             plain_child: None,
+            plain_cancelled: None,
             pty: None,
             pty_child: None,
             #[cfg(feature = "image")]
